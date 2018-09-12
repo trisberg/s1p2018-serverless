@@ -36,12 +36,10 @@ public class CatFunction {
 	}
 
 	@Bean
-	public Function<Message<String>, String> catnotcat(ImageAnnotatorClient client) {
+	public Function<String, String> catnotcat(ImageAnnotatorClient client) {
 		return (in) -> {
-			String image = in.getPayload();
-			System.out.println("HEADERS: " + in.getHeaders());
 			// Decode the Base64 encoded input into bytes.
-			byte[] bytes = Base64.getDecoder().decode(image);
+			byte[] bytes = Base64.getDecoder().decode(in);
 
 			// Make a Vision API request to detect labels
 			BatchAnnotateImagesResponse response = client
@@ -54,7 +52,7 @@ public class CatFunction {
 									.build()));
 
 			// For debugging purposes :)
-			//System.out.println(response.toString());
+			System.out.println(response.toString());
 
 			// If any label matches "cat" with score >= 90%,
 			// then return "cat", otherwise return "not cat"

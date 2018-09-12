@@ -61,7 +61,7 @@ public class ImageSource {
 	private void postMessage(String name, String data) {
 		HttpHeaders headers = new HttpHeaders();
 		headers.set("content-type", "text/plain");
-		headers.set("ce-identityLabels-name", name);
+		headers.set("ce-image-name", name);
 		HttpEntity<String> request = new HttpEntity<>(data, headers);
 		RestTemplate rt = new RestTemplate();
 		rt.postForObject(channelUrl, request, String.class);

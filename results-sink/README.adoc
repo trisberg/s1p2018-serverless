@@ -1,0 +1,212 @@
+= Spring Cloud Function with riff and Knative Workshop
+
+== Results Sink Function App
+
+Spring Boot App with Spring Cloud Function that writes incoming data to a SQL database
+
+This app image is published as `trisberg/resultssink-function` on Docker Hub.
+
+If you want to re-create this app follow the steps outlined below.
+
+==== Create the Spring Boot app
+
+. Initialize the Boot app (You can also use https://start.spring.io/[Spring Initializr] web interface)
++
+----
+curl https://start.spring.io/starter.tgz \
+  -d applicationName=ResultsSink \
+  -d dependencies=cloud-function,web,cloud-gcp \
+  -d artifactId=results-sink \
+  -d baseDir=results-sink | tar -xzvf -
+cd results-sink
+----
+
+. Update the dependencies for Spring Cloud Function and add the GCP SQL starter and a Jib plugin (change the image name if you plan on building your own)
++
+.pom.xml
+[source,subs=+quotes]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<groupId>com.example</groupId>
+	<artifactId>results-sink</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<packaging>jar</packaging>
+
+	<name>demo</name>
+	<description>Demo project for Spring Boot</description>
+
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>2.0.5.RELEASE</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+
+	<properties>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+		<java.version>1.8</java.version>
+		<spring-cloud-gcp.version>1.0.0.RELEASE</spring-cloud-gcp.version>
+		<spring-cloud.version>Finchley.SR1</spring-cloud.version>
+		*<spring-cloud-function.version>2.0.0.BUILD-SNAPSHOT</spring-cloud-function.version>*
+	</properties>
+
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-function-web</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-gcp-starter</artifactId>
+		</dependency>
+		*<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-gcp-starter-sql-mysql</artifactId>
+		</dependency>*
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<dependencyManagement>
+		<dependencies>
+			*<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-function-dependencies</artifactId>
+				<version>${spring-cloud-function.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>*
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-dependencies</artifactId>
+				<version>${spring-cloud.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-gcp-dependencies</artifactId>
+				<version>${spring-cloud-gcp.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			*<plugin>
+				<groupId>com.google.cloud.tools</groupId>
+				<artifactId>jib-maven-plugin</artifactId>
+				<version>0.9.10</version>
+				<configuration>
+					<to>
+						<image>trisberg/resultssink-function</image>
+					</to>
+				</configuration>
+			</plugin>*
+		</plugins>
+	</build>
+
+	<repositories>
+		<repository>
+			<id>spring-milestones</id>
+			<name>Spring Milestones</name>
+			<url>https://repo.spring.io/milestone</url>
+			<snapshots>
+				<enabled>false</enabled>
+			</snapshots>
+		</repository>
+	</repositories>
+
+
+</project>
+----
+
+. Add a `JdbcTemplate`, a constructor and a `@Bean` for the function (the bold parts are the additions):
++
+.src/main/java/com.example.resultssink/ResultsSink.java
+[source,subs=+quotes]
+----
+package com.example.resultssink;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+*import org.springframework.context.annotation.Bean;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.transaction.annotation.Transactional;*
+
+@SpringBootApplication
+public class ResultsSink {
+
+	*private final JdbcTemplate jdbcTemplate;*
+
+	*ResultsSink(JdbcTemplate jdbcTemplate) {
+		this.jdbcTemplate = jdbcTemplate;
+	}*
+
+	*@Bean
+	@Transactional
+	public Function<Message<String>, Message<String>> sink() {
+		return (in) -> {
+			System.out.println("HEADERS: " + in.getHeaders());
+			Object name = in.getHeaders().get("ce-image-name");
+			this.jdbcTemplate.update(
+				"insert into results(name, catnotcat) values(?, ?)", 
+				name, in.getPayload());
+			return MessageBuilder.withPayload("Processed " + name).build();
+		};
+	}*
+
+	public static void main(String[] args) {
+		SpringApplication.run(ResultsSink.class, args);
+	}
+}
+----
+
+. Add properties for connecting to the database.
++
+.src/main/resources/application.properties
+[source,subs=+quotes]
+----
+*spring.cloud.gcp.sql.database-name=workshop
+
+spring.datasource.initialization-mode=always
+spring.datasource.hikari.maximum-pool-size=2*
+----
+
+. Add a schema file for creating the table.
++
+.src/main/resources/schema.sql
+[source,subs=+quotes]
+----
+*CREATE TABLE IF NOT EXISTS results (
+  name VARCHAR(255),
+  catnotcat VARCHAR(20)
+) engine=InnoDB;*
+----
+
+. Build the app and the Docker image 
++
+----
+./mvnw compile jib:build
+----
