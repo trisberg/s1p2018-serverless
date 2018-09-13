@@ -14,14 +14,14 @@ If you want to re-create this app follow the steps outlined below.
 +
 ----
 curl https://start.spring.io/starter.tgz \
-  -d applicationName=ResultsSink \
+  -d applicationName=ResultsSinkApp \
   -d dependencies=cloud-function,web,cloud-gcp \
   -d artifactId=results-sink \
   -d baseDir=results-sink | tar -xzvf -
 cd results-sink
 ----
 
-. Update the dependencies for Spring Cloud Function and add the GCP SQL starter and a Jib plugin (change the image name if you plan on building your own)
+. Update the dependencies for Spring Cloud Function and add the GCP SQL starter and a Jib plugin (change the image name if you plan on building your own)(the bold parts are the additions):
 +
 .pom.xml
 [source,subs=+quotes]
@@ -142,7 +142,7 @@ cd results-sink
 
 . Add a `JdbcTemplate`, a constructor and a `@Bean` for the function (the bold parts are the additions):
 +
-.src/main/java/com.example.resultssink/ResultsSink.java
+.src/main/java/com.example.resultssink/ResultsSinkApp.java
 [source,subs=+quotes]
 ----
 package com.example.resultssink;
@@ -153,14 +153,15 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
-import org.springframework.transaction.annotation.Transactional;*
+import org.springframework.transaction.annotation.Transactional;
+import java.util.function.Function;*
 
 @SpringBootApplication
-public class ResultsSink {
+public class ResultsSinkApp {
 
 	*private final JdbcTemplate jdbcTemplate;*
 
-	*ResultsSink(JdbcTemplate jdbcTemplate) {
+	*ResultsSinkApp(JdbcTemplate jdbcTemplate) {
 		this.jdbcTemplate = jdbcTemplate;
 	}*
 
@@ -178,7 +179,7 @@ public class ResultsSink {
 	}*
 
 	public static void main(String[] args) {
-		SpringApplication.run(ResultsSink.class, args);
+		SpringApplication.run(ResultsSinkApp.class, args);
 	}
 }
 ----

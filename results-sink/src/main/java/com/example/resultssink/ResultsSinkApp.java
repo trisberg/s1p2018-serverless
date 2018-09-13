@@ -11,11 +11,11 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootApplication
-public class ResultsSink {
+public class ResultsSinkApp {
 
 	private final JdbcTemplate jdbcTemplate;
 
-	ResultsSink(JdbcTemplate jdbcTemplate) {
+	ResultsSinkApp(JdbcTemplate jdbcTemplate) {
 		this.jdbcTemplate = jdbcTemplate;
 	}
 
@@ -31,6 +31,6 @@ public class ResultsSink {
 	}
 
 	public static void main(String[] args) {
-		SpringApplication.run(ResultsSink.class, args);
+		SpringApplication.run(ResultsSinkApp.class, args);
 	}
 }
