@@ -6,11 +6,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.gcp.data.spanner.core.SpannerTemplate;
 import org.springframework.context.annotation.Bean;
 import org.springframework.messaging.Message;
-import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.cloud.gcp.data.spanner.core.mapping.Column;
 import org.springframework.cloud.gcp.data.spanner.core.mapping.PrimaryKey;
 import org.springframework.cloud.gcp.data.spanner.core.mapping.Table;
-import java.util.function.Function;
+import java.util.function.Consumer;
 import java.util.UUID;
 
 @SpringBootApplication
@@ -36,12 +35,12 @@ public class ResultsSinkApp {
 	}
 
 	@Bean
-	public Function<Message<String>, Message<String>> sink() {
+	public Consumer<Message<String>> sink() {
 		return (in) -> {
 			String name = ""+in.getHeaders().get("ce-image-name");
 			Results r = new Results(UUID.randomUUID(), name, in.getPayload());
 			this.spannerTemplate.insert(r);
-			return MessageBuilder.withPayload("Processed -> " + r.id + " : " + name).build();
+			System.out.println("Processed -> " + r.id + " : " + name);
 		};
 	}
 
