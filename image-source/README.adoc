@@ -1,0 +1,217 @@
+= Spring Cloud Function with riff and Knative Workshop
+
+== Image Source Function App
+
+Spring Boot App with Spring Cloud Function that posts bytes read from an image URL as a base64 encoded string
+
+This app image is published as `trisberg/imagesource-function` on Docker Hub.
+
+If you want to re-create this app follow the steps outlined below.
+
+==== Create the Spring Boot app
+
+. Initialize the Boot app (You can also use https://start.spring.io/[Spring Initializr] web interface)
++
+----
+curl https://start.spring.io/starter.tgz \
+  -d applicationName=ImageSourceApp \
+  -d dependencies=cloud-function,web \
+  -d artifactId=image-source \
+  -d baseDir=image-source | tar -xzvf -
+cd image-source
+----
+
+. Add a `@Bean` for the function and also a `channel.url` property plus a method for posting a message (the bold parts are the additions):
++
+.src/main/java/com.example.resultssink/ResultsSinkApp.java
+[source,subs=+quotes]
+----
+package com.example.resultssink;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+*import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.web.client.RestTemplate;
+import java.util.function.Function;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLConnection;
+import java.util.Base64;*
+
+@SpringBootApplication
+public class ResultsSinkApp {
+
+	*@Value("${channel.url:http://pictures-channel.default.svc.cluster.local}")
+	String channelUrl;*
+
+	*@Bean
+	public Function<String, String> publish() {
+		return (pic) -> {
+			URL url = null;
+			try {
+				url = new URL(pic);
+			} catch (MalformedURLException e) {
+				throw new IllegalStateException("Invalid URL: " + pic, e);
+			}
+			ByteArrayOutputStream output = new ByteArrayOutputStream();
+			URLConnection conn = null;
+			try {
+				conn = url.openConnection();
+			} catch (IOException e) {
+				throw new IllegalStateException("Failed opening URL: " + pic, e);
+			}
+			byte[] img = new byte[0];
+			try (InputStream inputStream = conn.getInputStream()) {
+				int n = 0;
+				byte[] buffer = new byte[1024];
+				while (-1 != (n = inputStream.read(buffer))) {
+					output.write(buffer, 0, n);
+				}
+				img = output.toByteArray();
+				output.close();
+			} catch (IOException e) {
+				throw new IllegalStateException("Failed reading URL: " + pic, e);
+			}
+			String base64Img = Base64.getEncoder().encodeToString(img);
+			String name = pic.substring(pic.lastIndexOf("/") + 1);
+			postMessage(name, base64Img);
+			return "Publishing: " + name + " [" + base64Img.length() + "]";
+		};
+	}*
+
+	*private void postMessage(String name, String data) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.set("content-type", "text/plain");
+		headers.set("ce-image-name", name);
+		HttpEntity<String> request = new HttpEntity<>(data, headers);
+		RestTemplate rt = new RestTemplate();
+		rt.postForObject(channelUrl, request, String.class);
+	}*
+
+	public static void main(String[] args) {
+		SpringApplication.run(ResultsSinkApp.class, args);
+	}
+}
+----
+
+. Update the dependencies for Spring Cloud Function and add a Jib plugin (change the image name if you plan on building your own)(the bold parts are the additions):
++
+.pom.xml
+[source,subs=+quotes]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<groupId>com.example</groupId>
+	<artifactId>results-sink</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<packaging>jar</packaging>
+
+	<name>demo</name>
+	<description>Demo project for Spring Boot</description>
+
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>2.0.5.RELEASE</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+
+	<properties>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+		<java.version>1.8</java.version>
+		<spring-cloud-gcp.version>1.0.0.RELEASE</spring-cloud-gcp.version>
+		<spring-cloud.version>Finchley.SR1</spring-cloud.version>
+		*<spring-cloud-function.version>2.0.0.BUILD-SNAPSHOT</spring-cloud-function.version>*
+	</properties>
+
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-function-web</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<dependencyManagement>
+		<dependencies>
+			*<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-function-dependencies</artifactId>
+				<version>${spring-cloud-function.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>*
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-dependencies</artifactId>
+				<version>${spring-cloud.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-gcp-dependencies</artifactId>
+				<version>${spring-cloud-gcp.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			*<plugin>
+				<groupId>com.google.cloud.tools</groupId>
+				<artifactId>jib-maven-plugin</artifactId>
+				<version>0.9.10</version>
+				<configuration>
+					<to>
+						<image>trisberg/imagesource-function</image>
+					</to>
+				</configuration>
+			</plugin>*
+		</plugins>
+	</build>
+
+	<repositories>
+		<repository>
+			<id>spring-milestones</id>
+			<name>Spring Milestones</name>
+			<url>https://repo.spring.io/milestone</url>
+			<snapshots>
+				<enabled>false</enabled>
+			</snapshots>
+		</repository>
+	</repositories>
+
+</project>
+----
+
+. Build the app and the Docker image 
++
+----
+./mvnw compile jib:build
+----

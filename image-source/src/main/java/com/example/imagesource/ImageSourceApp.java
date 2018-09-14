@@ -1,5 +1,13 @@
-package com.example.demo;
+package com.example.imagesource;
 
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.web.client.RestTemplate;
+import java.util.function.Function;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -7,18 +15,9 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.Base64;
-import java.util.function.Function;
-
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.context.annotation.Bean;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.web.client.RestTemplate;
 
 @SpringBootApplication
-public class ImageSource {
+public class ImageSourceApp {
 
 	@Value("${channel.url:http://pictures-channel.default.svc.cluster.local}")
 	String channelUrl;
@@ -68,6 +67,6 @@ public class ImageSource {
 	}
 
 	public static void main(String[] args) {
-		SpringApplication.run(ImageSource.class, args);
+		SpringApplication.run(ImageSourceApp.class, args);
 	}
 }
