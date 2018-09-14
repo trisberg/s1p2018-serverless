@@ -1,32 +1,47 @@
 package com.example.resultssink;
 
-import java.util.function.Function;
-
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cloud.gcp.data.spanner.core.SpannerTemplate;
 import org.springframework.context.annotation.Bean;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.cloud.gcp.data.spanner.core.mapping.Column;
+import org.springframework.cloud.gcp.data.spanner.core.mapping.PrimaryKey;
+import org.springframework.cloud.gcp.data.spanner.core.mapping.Table;
+import java.util.function.Function;
+import java.util.UUID;
 
 @SpringBootApplication
 public class ResultsSinkApp {
 
-	private final JdbcTemplate jdbcTemplate;
+	@Autowired
+	SpannerTemplate spannerTemplate;
 
-	ResultsSinkApp(JdbcTemplate jdbcTemplate) {
-		this.jdbcTemplate = jdbcTemplate;
+	@Table(name = "results")
+	public class Results {
+
+		@PrimaryKey
+		@Column(name = "id")
+		UUID id;
+		String name;
+		String catnotcat;
+
+		public Results(UUID id, String name, String catnotcat) {
+			this.id = id;
+			this.name = name;
+			this.catnotcat = catnotcat;
+		}
 	}
 
 	@Bean
-	@Transactional
 	public Function<Message<String>, Message<String>> sink() {
 		return (in) -> {
-			System.out.println("HEADERS: " + in.getHeaders());
-			Object name = in.getHeaders().get("ce-image-name");
-			this.jdbcTemplate.update("insert into results(name, catnotcat) values(?, ?)", name, in.getPayload());
-			return MessageBuilder.withPayload("Processed " + name).build();
+			String name = ""+in.getHeaders().get("ce-image-name");
+			Results r = new Results(UUID.randomUUID(), name, in.getPayload());
+			this.spannerTemplate.insert(r);
+			return MessageBuilder.withPayload("Processed -> " + r.id + " : " + name).build();
 		};
 	}
 

@@ -2,13 +2,13 @@
 
 == Results Sink Function App
 
-Spring Boot App with Spring Cloud Function that writes incoming data to a SQL database
+Spring Boot App with Spring Cloud Function that writes incoming data to a Spanner database
 
 This app image is published as `trisberg/resultssink-function` on Docker Hub.
 
 If you want to re-create this app follow the steps outlined below.
 
-==== Create the Spring Boot app
+=== Create the Spring Boot app
 
 . Initialize the Boot app (You can also use https://start.spring.io/[Spring Initializr] web interface)
 +
@@ -21,7 +21,7 @@ curl https://start.spring.io/starter.tgz \
 cd results-sink
 ----
 
-. Update the dependencies for Spring Cloud Function and add the GCP SQL starter and a Jib plugin (change the image name if you plan on building your own)(the bold parts are the additions):
+. Update the Spring Cloud GCP version and the dependencies for Spring Cloud Function and add the GCP Spanner starter and a Jib plugin (change the image name if you plan on building your own)(the bold parts are the additions):
 +
 .pom.xml
 [source,subs=+quotes]
@@ -52,7 +52,8 @@ cd results-sink
 		<java.version>1.8</java.version>
 		<spring-cloud-gcp.version>1.0.0.RELEASE</spring-cloud-gcp.version>
 		<spring-cloud.version>Finchley.SR1</spring-cloud.version>
-		*<spring-cloud-function.version>2.0.0.BUILD-SNAPSHOT</spring-cloud-function.version>*
+		*<spring-cloud-gcp.version>1.1.0.M1</spring-cloud-gcp.version>
+		<spring-cloud-function.version>2.0.0.BUILD-SNAPSHOT</spring-cloud-function.version>*
 	</properties>
 
 	<dependencies>
@@ -70,7 +71,7 @@ cd results-sink
 		</dependency>
 		*<dependency>
 			<groupId>org.springframework.cloud</groupId>
-			<artifactId>spring-cloud-gcp-starter-sql-mysql</artifactId>
+			<artifactId>spring-cloud-gcp-starter-data-spanner</artifactId>
 		</dependency>*
 
 		<dependency>
@@ -140,7 +141,7 @@ cd results-sink
 </project>
 ----
 
-. Add a `JdbcTemplate`, a constructor and a `@Bean` for the function (the bold parts are the additions):
+. Add a `SpannerTemplate`, a Results class and a `@Bean` for the function (the bold parts are the additions):
 +
 .src/main/java/com.example.resultssink/ResultsSinkApp.java
 [source,subs=+quotes]
@@ -149,32 +150,46 @@ package com.example.resultssink;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-*import org.springframework.context.annotation.Bean;
-import org.springframework.jdbc.core.JdbcTemplate;
+*import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cloud.gcp.data.spanner.core.SpannerTemplate;
+import org.springframework.context.annotation.Bean;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
-import org.springframework.transaction.annotation.Transactional;
-import java.util.function.Function;*
+import org.springframework.cloud.gcp.data.spanner.core.mapping.Column;
+import org.springframework.cloud.gcp.data.spanner.core.mapping.PrimaryKey;
+import org.springframework.cloud.gcp.data.spanner.core.mapping.Table;
+import java.util.function.Function;
+import java.util.UUID;*
 
 @SpringBootApplication
 public class ResultsSinkApp {
 
-	*private final JdbcTemplate jdbcTemplate;*
+	*@Autowired
+	SpannerTemplate spannerTemplate;*
 
-	*ResultsSinkApp(JdbcTemplate jdbcTemplate) {
-		this.jdbcTemplate = jdbcTemplate;
+	*@Table(name = "results")
+	public class Results {
+
+		@PrimaryKey
+		@Column(name = "id")
+		UUID id;
+		String name;
+		String catnotcat;
+
+		public Results(UUID id, String name, String catnotcat) {
+			this.id = id;
+			this.name = name;
+			this.catnotcat = catnotcat;
+		}
 	}*
 
 	*@Bean
-	@Transactional
 	public Function<Message<String>, Message<String>> sink() {
 		return (in) -> {
-			System.out.println("HEADERS: " + in.getHeaders());
-			Object name = in.getHeaders().get("ce-image-name");
-			this.jdbcTemplate.update(
-				"insert into results(name, catnotcat) values(?, ?)", 
-				name, in.getPayload());
-			return MessageBuilder.withPayload("Processed " + name).build();
+			String name = ""+in.getHeaders().get("ce-image-name");
+			Results r = new Results(UUID.randomUUID(), name, in.getPayload());
+			this.spannerTemplate.insert(r);
+			return MessageBuilder.withPayload("Processed -> " + r.id + " : " + name).build();
 		};
 	}*
 
@@ -189,25 +204,81 @@ public class ResultsSinkApp {
 .src/main/resources/application.properties
 [source,subs=+quotes]
 ----
-*spring.cloud.gcp.sql.database-name=workshop
-
-spring.datasource.initialization-mode=always
-spring.datasource.hikari.maximum-pool-size=2*
+*spring.cloud.gcp.spanner.instance-id=workshop
+spring.cloud.gcp.spanner.database=catnotcat*
 ----
 
 . Add a schema file for creating the table.
 +
-.src/main/resources/schema.sql
+.src/main/resources/schema.ddl
 [source,subs=+quotes]
 ----
-*CREATE TABLE IF NOT EXISTS results (
-  name VARCHAR(255),
-  catnotcat VARCHAR(20)
-) engine=InnoDB;*
+*CREATE TABLE results (
+  id        STRING (36) NOT NULL,
+  name      STRING (255) NOT NULL,
+  catnotcat STRING (10) NOT NULL
+) PRIMARY KEY (id );*
 ----
 
 . Build the app and the Docker image 
 +
 ----
 ./mvnw compile jib:build
+----
+
+=== Set up the GCP Spanner instance
+
+. Enable Spanner and create an instance, a database and the table
++
+----
+gcloud services enable spanner.googleapis.com
+gcloud spanner instances create workshop --config=regional-us-central1 \
+  --nodes=1 --description="SpringOne Platform 2018"
+gcloud spanner databases create catnotcat --instance=workshop
+gcloud spanner databases ddl update catnotcat \
+  --instance=workshop --ddl="$(cat ./src/main/resources/schema.ddl)"
+----
+
+=== Deploy the app to GKE
+
+. Enable Egress to Google Cloud Platform APIs
++
+----
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: googleapis
+spec:
+  hosts:
+  - "*.googleapis.com"
+  location: MESH_EXTERNAL
+  ports:
+  - number: 443
+    name: https
+    protocol: HTTPS
+EOF
+----
+
+. Create a service account and key
++
+----
+gcloud iam service-accounts create spanner-results
+export GCP_PROJECT=$(gcloud config get-value core/project)
+gcloud projects add-iam-policy-binding $GCP_PROJECT \
+  --member serviceAccount:spanner-results@$GCP_PROJECT.iam.gserviceaccount.com \
+  --role roles/spanner.databaseUser
+gcloud iam service-accounts keys create \
+  --iam-account "spanner-results@$GCP_PROJECT.iam.gserviceaccount.com" \
+  ~/spanner-results.json
+----
+
+. Create the Knative service for the app
++
+----
+export GCP_PROJECT=$(gcloud config get-value core/project)
+riff service create resultssink \
+    --env SPRING_CLOUD_GCP_PROJECT_ID=${GCP_PROJECT} \
+    --env SPRING_CLOUD_GCP_CREDENTIALS_ENCODED_KEY="$(base64 $HOME/spanner-results.json)" \
+    --image trisberg/resultssink-function
 ----
