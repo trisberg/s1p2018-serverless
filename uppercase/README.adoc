@@ -1,0 +1,145 @@
+= Spring Cloud Function with riff and Knative Workshop
+
+== Uppercase Function App
+
+Spring Boot App with Spring Cloud Function that uppercases text posted to it
+
+This app image is published as `trisberg/uppercase-function` on Docker Hub.
+
+If you want to re-create this app follow the steps outlined below.
+
+==== Create the Spring Boot app
+
+. Initialize the Boot app (You can also use https://start.spring.io/[Spring Initializr] web interface)
++
+----
+curl https://start.spring.io/starter.tgz \
+  -d applicationName=UppercaseApp \
+  -d dependencies=cloud-function,web \
+  -d artifactId=uppercase \
+  -d baseDir=uppercase | tar -xzvf -
+cd uppercase
+----
+
+. Add a `@Bean` for the function (the bold parts are the additions):
++
+.src/main/java/com.example.uppercase/UppercaseApp.java
+[source,subs=+quotes]
+----
+package com.example.resultssink;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+*import org.springframework.context.annotation.Bean;
+import java.util.function.Function;*
+
+@SpringBootApplication
+public class UppercaseApp {
+
+	*@Bean
+	Function<String, String> uppercase() {
+		return String::toUpperCase;
+	}*
+
+	public static void main(String[] args) {
+		SpringApplication.run(UppercaseApp.class, args);
+	}
+}
+----
+
+. Update the dependencies for Spring Cloud Function and add a Jib plugin (change the image name if you plan on building your own)(the bold parts are the additions):
++
+.pom.xml
+[source,subs=+quotes]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<groupId>com.example</groupId>
+	<artifactId>uppercase</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<packaging>jar</packaging>
+
+	<name>demo</name>
+	<description>Demo project for Spring Boot</description>
+
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>2.0.5.RELEASE</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+
+	<properties>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+		<java.version>1.8</java.version>
+		<spring-cloud.version>Finchley.SR1</spring-cloud.version>
+		*<spring-cloud-function.version>2.0.0.BUILD-SNAPSHOT</spring-cloud-function.version>*
+	</properties>
+
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-function-web</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<dependencyManagement>
+		<dependencies>
+			*<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-function-dependencies</artifactId>
+				<version>${spring-cloud-function.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>*
+			<dependency>
+				<groupId>org.springframework.cloud</groupId>
+				<artifactId>spring-cloud-dependencies</artifactId>
+				<version>${spring-cloud.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			*<plugin>
+				<groupId>com.google.cloud.tools</groupId>
+				<artifactId>jib-maven-plugin</artifactId>
+				<version>0.9.10</version>
+				<configuration>
+					<to>
+						<image>trisberg/uppercase-function</image>
+					</to>
+				</configuration>
+			</plugin>*
+		</plugins>
+	</build>
+
+</project>
+----
+
+. Build the app and the Docker image 
++
+----
+./mvnw compile jib:build
+----
