@@ -90,7 +90,7 @@
 				<version>0.9.10</version>
 				<configuration>
 					<to>
-						<image>gcr.io/cf-spring-funkytown/catnotcat-function</image>
+						<image>trisberg/catnotcat-function</image>
 					</to>
 				</configuration>
 			</plugin>
