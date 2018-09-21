@@ -14,14 +14,16 @@ If you want to re-create this app follow the steps outlined below.
 +
 ----
 curl https://start.spring.io/starter.tgz \
+  -d bootVersion=2.1.0.M3 \
   -d applicationName=ResultsSinkApp \
   -d dependencies=cloud-function,web,cloud-gcp \
+  -d name=results-sink \
   -d artifactId=results-sink \
   -d baseDir=results-sink | tar -xzvf -
 cd results-sink
 ----
 
-. Update the Spring Cloud GCP version and the dependencies for Spring Cloud Function and add the GCP Spanner starter and a Jib plugin (change the image name if you plan on building your own)(the bold parts are the additions):
+. Add the GCP Spanner starter dependency (the bold parts are the additions):
 +
 .pom.xml
 [source,subs=+quotes]
@@ -31,30 +33,7 @@ cd results-sink
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 
-	<groupId>com.example</groupId>
-	<artifactId>results-sink</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
-	<packaging>jar</packaging>
-
-	<name>demo</name>
-	<description>Demo project for Spring Boot</description>
-
-	<parent>
-		<groupId>org.springframework.boot</groupId>
-		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>2.0.5.RELEASE</version>
-		<relativePath/> <!-- lookup parent from repository -->
-	</parent>
-
-	<properties>
-		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-		<java.version>1.8</java.version>
-		<spring-cloud-gcp.version>1.0.0.RELEASE</spring-cloud-gcp.version>
-		<spring-cloud.version>Finchley.SR1</spring-cloud.version>
-		*<spring-cloud-gcp.version>1.1.0.M1</spring-cloud-gcp.version>
-		<spring-cloud-function.version>2.0.0.BUILD-SNAPSHOT</spring-cloud-function.version>*
-	</properties>
+...
 
 	<dependencies>
 		<dependency>
@@ -81,62 +60,7 @@ cd results-sink
 		</dependency>
 	</dependencies>
 
-	<dependencyManagement>
-		<dependencies>
-			*<dependency>
-				<groupId>org.springframework.cloud</groupId>
-				<artifactId>spring-cloud-function-dependencies</artifactId>
-				<version>${spring-cloud-function.version}</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>*
-			<dependency>
-				<groupId>org.springframework.cloud</groupId>
-				<artifactId>spring-cloud-dependencies</artifactId>
-				<version>${spring-cloud.version}</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-			<dependency>
-				<groupId>org.springframework.cloud</groupId>
-				<artifactId>spring-cloud-gcp-dependencies</artifactId>
-				<version>${spring-cloud-gcp.version}</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-		</dependencies>
-	</dependencyManagement>
-
-	<build>
-		<plugins>
-			<plugin>
-				<groupId>org.springframework.boot</groupId>
-				<artifactId>spring-boot-maven-plugin</artifactId>
-			</plugin>
-			*<plugin>
-				<groupId>com.google.cloud.tools</groupId>
-				<artifactId>jib-maven-plugin</artifactId>
-				<version>0.9.10</version>
-				<configuration>
-					<to>
-						<image>trisberg/resultssink-function</image>
-					</to>
-				</configuration>
-			</plugin>*
-		</plugins>
-	</build>
-
-	<repositories>
-		<repository>
-			<id>spring-milestones</id>
-			<name>Spring Milestones</name>
-			<url>https://repo.spring.io/milestone</url>
-			<snapshots>
-				<enabled>false</enabled>
-			</snapshots>
-		</repository>
-	</repositories>
-
+...
 
 </project>
 ----
@@ -219,10 +143,11 @@ spring.cloud.gcp.spanner.database=catnotcat*
 ) PRIMARY KEY (id );*
 ----
 
-. Build the app and the Docker image 
+. Build the app and the Docker image using Jib  (change the image name when building your own)
 +
 ----
-./mvnw compile jib:build
+./mvnw clean compile com.google.cloud.tools:jib-maven-plugin:build \
+  -Dimage=trisberg/resultssink-function
 ----
 
 === Set up the GCP Spanner instance
@@ -259,17 +184,24 @@ spec:
 EOF
 ----
 
-. Create a service account and key
+. Enable Egress to Google Cloud Platform metadata
 +
 ----
-gcloud iam service-accounts create spanner-results
-export GCP_PROJECT=$(gcloud config get-value core/project)
-gcloud projects add-iam-policy-binding $GCP_PROJECT \
-  --member serviceAccount:spanner-results@$GCP_PROJECT.iam.gserviceaccount.com \
-  --role roles/spanner.databaseUser
-gcloud iam service-accounts keys create \
-  --iam-account "spanner-results@$GCP_PROJECT.iam.gserviceaccount.com" \
-  ~/spanner-results.json
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: metadata-server
+spec:
+  hosts:
+  - metadata.google.internal
+  - 169.254.169.254
+  location: MESH_EXTERNAL
+  ports:
+  - number: 80
+    name: http
+    protocol: HTTP
+EOF
 ----
 
 . Create the Knative service for the app
@@ -278,6 +210,5 @@ gcloud iam service-accounts keys create \
 export GCP_PROJECT=$(gcloud config get-value core/project)
 riff service create resultssink \
     --env SPRING_CLOUD_GCP_PROJECT_ID=${GCP_PROJECT} \
-    --env SPRING_CLOUD_GCP_CREDENTIALS_ENCODED_KEY="$(base64 $HOME/spanner-results.json)" \
     --image trisberg/resultssink-function
 ----
